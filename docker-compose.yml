@@ -1,0 +1,74 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: saas_postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: saas_demo
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Backend API
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.server
+    container_name: saas_api
+    environment:
+      NODE_ENV: development
+      PORT: 3001
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/saas_demo
+      PGHOST: postgres
+      PGPORT: 5432
+      PGDATABASE: saas_demo
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      JWT_SECRET: dev-jwt-secret-change-in-production
+      JWT_REFRESH_SECRET: dev-refresh-secret-change-in-production
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-sk_test_placeholder}
+      STRIPE_PUBLISHABLE_KEY: ${STRIPE_PUBLISHABLE_KEY:-pk_test_placeholder}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-whsec_placeholder}
+      CLIENT_URL: http://localhost:5173
+      API_URL: http://localhost:3001
+    ports:
+      - "3001:3001"
+    volumes:
+      - ./server:/app/server
+      - ./shared:/app/shared
+      - /app/node_modules
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: >
+      sh -c "npm run db:migrate && npm run db:seed && npm run dev:server"
+
+  # Frontend Client
+  client:
+    build:
+      context: ./client
+      dockerfile: ../Dockerfile.client
+    container_name: saas_client
+    environment:
+      VITE_API_URL: http://localhost:3001
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./client:/app
+      - /app/node_modules
+    depends_on:
+      - api
+    command: npm run dev -- --host
+
+volumes:
+  postgres_data:
